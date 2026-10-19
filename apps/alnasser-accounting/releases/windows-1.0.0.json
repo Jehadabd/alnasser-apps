@@ -1,0 +1,12 @@
+{
+    "platform":  "windows",
+    "version":  "1.0.0",
+    "file":  "alnasser-accounting-1.0.0-windows.exe",
+    "size":  95153622,
+    "sha256":  "c868aefba66e4bebf4f5185db3ddd4701b3f5919abcbf4fb49d11bf2eb53825d",
+    "url":  "https://github.com/Jehadabd/alnasser-apps/releases/download/alnasser-accounting-windows-v1.0.0/alnasser-accounting-1.0.0-windows.exe",
+    "date":  "2026-10-20",
+    "notes":  [
+                  "الإصدار الأول"
+              ]
+}
