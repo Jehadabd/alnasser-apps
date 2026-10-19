@@ -129,6 +129,22 @@ function Assert-ApkReleaseSigned([string]$apk) {
   Ok "الـAPK موقّع بمفتاح نشر. بصمة الشهادة: $fp"
 }
 
+function Pick-File([string]$platform) {
+  try {
+    Add-Type -AssemblyName System.Windows.Forms
+    $d = New-Object System.Windows.Forms.OpenFileDialog
+    $d.Title = "اختر ملف التطبيق ($($Platforms[$platform].Label))"
+    if ($platform -eq 'android') { $d.Filter = 'APK (*.apk)|*.apk' }
+    else { $d.Filter = 'برنامج ويندوز (*.exe;*.msix;*.msi;*.zip)|*.exe;*.msix;*.msi;*.zip' }
+    $guess = Join-Path $env:USERPROFILE 'Desktop\alnasser-accounting-edition'
+    $sub = if ($platform -eq 'android') { 'build\app\outputs\flutter-apk' } else { 'installer_output' }
+    if (Test-Path (Join-Path $guess $sub)) { $d.InitialDirectory = (Join-Path $guess $sub) }
+    $top = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true }
+    if ($d.ShowDialog($top) -eq [System.Windows.Forms.DialogResult]::OK) { return $d.FileName }
+  } catch { Warn "تعذّر فتح نافذة الاختيار: $($_.Exception.Message)" }
+  return $null
+}
+
 # ═════════════════════ 1) نشر إصدار ═════════════════════
 function Publish-Release {
   $repo = Get-Repo
@@ -141,12 +157,16 @@ function Publish-Release {
   $platform = @('windows', 'android')[[int]$p - 1]
   $label = $Platforms[$platform].Label
 
-  $version = Ask 'رقم الإصدار (مثل 2.4.0)' '\d+(\.\d+){0,3}([-+][0-9A-Za-z.]{1,20})?' 'اكتب الإصدار أرقاماً مثل 2.4.0'
+  $version = Ask 'رقم الإصدار (مثل 1.0.0)' '\d+\.\d+\.\d+(\.\d+)?([-+][0-9A-Za-z.]{1,20})?' 'اكتب الإصدار بثلاثة أرقام مثل 1.0.0'
   $relDir = Join-Path $app.FullName 'releases'
   $relFile = Join-Path $relDir "$platform-$version.json"
   if (Test-Path $relFile) { Die "الإصدار $version لـ$label منشور سابقاً. ارفع الرقم (مثلاً $version.1)." }
 
-  $path = (Read-Host 'اسحب ملف التطبيق إلى هنا ثم Enter').Trim().Trim('"').Trim("'")
+  # نافذة اختيار ملف عادية (بدل السحب أو كتابة المسار)
+  Say 'ستُفتح نافذة لاختيار ملف التطبيق…' 'Cyan'
+  $path = Pick-File $platform
+  if (-not $path) { $path = (Read-Host 'لم تختر ملفاً. اكتب مسار الملف أو اتركه فارغاً للإلغاء').Trim().Trim('"').Trim("'") }
+  if (-not $path) { Warn 'أُلغي.'; return }
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Die "الملف غير موجود: $path" }
   $src = Get-Item -LiteralPath $path
   $ext = $src.Extension.ToLowerInvariant()
