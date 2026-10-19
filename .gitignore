@@ -1,0 +1,32 @@
+# ناتج البناء
+dist/
+
+# ملفات التطبيقات لا تدخل المستودع أبداً: مكانها GitHub Releases
+*.exe
+*.msi
+*.msix
+*.apk
+*.aab
+*.zip
+
+# أسرار — لا تُرفع تحت أي ظرف
+*.jks
+*.keystore
+*.pfx
+*.p12
+*.pem
+*.key
+key.properties
+.env
+.env.*
+secrets/
+
+# نظام
+Thumbs.db
+desktop.ini
+.DS_Store
+__pycache__/
+
+# سكربتات وسجلات محلية
+_run/
+_to_delete/
