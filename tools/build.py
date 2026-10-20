@@ -36,6 +36,8 @@ PLATFORMS = {
     "android": {"label": "أندرويد", "exts": {".apk"}},
 }
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}  # SVG ممنوع عمداً: قد يحوي سكربتاً
+VIDEO_EXTS = {".mp4", ".webm"}
+VIDEO_MAX = 90 * 1024 * 1024  # GitHub يرفض أي ملف فوق 100 ميغا
 RE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 RE_VERSION = re.compile(r"^\d+(\.\d+){0,3}([-+][0-9A-Za-z.]{1,20})?$")
 RE_SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -113,6 +115,7 @@ class App:
     icon: str | None
     shots: list[dict]
     releases: list[Release]
+    videos: list[dict] = field(default_factory=list)
     icon_path: str | None = None
 
     def latest(self, platform: str) -> Release | None:
@@ -211,7 +214,28 @@ def load_app(app_dir: Path, repo: str) -> App:
             if p.suffix.lower() not in IMAGE_EXTS:
                 fail(f"apps/{app_id}/screenshots/{p.name}: نوع صورة غير مقبول (PNG أو JPG أو WEBP فقط)")
             shots.append({"src": p, "caption": str(captions.get(p.name, "")).strip()})
+    vcaps = d.get("videos", {}) or {}
+    if not isinstance(vcaps, dict):
+        fail(f"{where}: videos يجب أن يكون {{\"اسم الملف\": \"الوصف\"}}")
+    videos = []
+    vdir = app_dir / "videos"
+    if vdir.is_dir():
+        for p in sorted(vdir.iterdir()):
+            if p.name.startswith("."):
+                continue
+            if p.suffix.lower() not in VIDEO_EXTS or not RE_FILE.match(p.name):
+                fail(f"apps/{app_id}/videos/{p.name}: فيديو غير مقبول (MP4 أو WEBM، واسم بحروف إنجليزية)")
+            if p.stat().st_size > VIDEO_MAX:
+                fail(f"apps/{app_id}/videos/{p.name}: أكبر من 90 ميغا — اضغطه أولاً")
+            head = p.read_bytes()[:12]
+            ok = head[4:8] == b"ftyp" if p.suffix.lower() == ".mp4" else head[:4] == b"\x1a\x45\xdf\xa3"
+            if not ok:
+                fail(f"apps/{app_id}/videos/{p.name}: الملف ليس فيديو {p.suffix} حقيقياً")
+            # windows-… يظهر في خطوات ويندوز، android-… في خطوات أندرويد، غيرهما فيديو عام
+            plat = next((k for k in PLATFORMS if p.name.lower().startswith(k + "-")), "")
+            videos.append({"src": p, "caption": str(vcaps.get(p.name, "")).strip(), "platform": plat})
     return App(
+        videos=videos,
         id=app_id,
         name=name,
         tagline=str(d.get("tagline", "")).strip(),
@@ -251,7 +275,7 @@ def process_image(src: Path, dst_dir: Path, stem: str, max_w: int) -> tuple[str,
 
 # ───────────────────────────── القوالب ─────────────────────────────
 
-CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; "
+CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self'; "
        "base-uri 'none'; form-action 'none'; upgrade-insecure-requests")
 
 
@@ -377,6 +401,50 @@ def verify_steps(app: App) -> str:
     return "".join(parts)
 
 
+def video_tag(v: dict, up: str) -> str:
+    cap = f'<figcaption>{e(v["caption"])}</figcaption>' if v["caption"] else ""
+    return (f'<figure class="video"><video controls preload="metadata" playsinline src="{up}{e(v["path"])}">'
+            f'متصفحك لا يعرض الفيديو — <a href="{up}{e(v["path"])}">افتحه مباشرة</a></video>{cap}</figure>')
+
+
+def install_steps(app: App, up: str) -> str:
+    """خطوات التثبيت لكل منصة، مع فيديو المنصة إن وُجد (windows-… / android-…)."""
+    parts = []
+    w = app.latest("windows")
+    if w:
+        vids = "".join(video_tag(v, up) for v in app.videos if v["platform"] == "windows")
+        parts.append(f"""
+<div class="verify-block install-block">
+  <h3>على ويندوز</h3>
+  {vids}
+  <ol>
+    <li>اضغط زر «تنزيل لويندوز» أعلاه.</li>
+    <li>قد يحذّرك المتصفح (Edge) أن الملف «غير شائع». مرّر الفأرة على التحذير في قائمة التنزيلات، واضغط <b>⋯</b> ثم <b>الاحتفاظ (Keep)</b>. إن ظهرت رسالة ثانية فاضغط <b>إظهار المزيد</b> ثم <b>الاحتفاظ على أي حال</b>.</li>
+    <li>افتح الملف <code dir="ltr">{e(w.file)}</code> من مجلد التنزيلات.</li>
+    <li>ستظهر شاشة زرقاء «Windows protected your PC». اضغط <b>مزيد من المعلومات (More info)</b> ثم <b>التشغيل على أي حال (Run anyway)</b>.</li>
+    <li>اضغط <b>نعم</b> عند سؤال الصلاحيات، ثم <b>التالي</b> حتى <b>تثبيت</b> ثم <b>إنهاء</b>.</li>
+    <li>شغّل البرنامج من سطح المكتب، وسجّل الدخول باسم حساب الترخيص وكلمة سره.</li>
+  </ol>
+</div>""")
+    a = app.latest("android")
+    if a:
+        vids = "".join(video_tag(v, up) for v in app.videos if v["platform"] == "android")
+        parts.append(f"""
+<div class="verify-block install-block">
+  <h3>على أندرويد</h3>
+  {vids}
+  <ol>
+    <li>افتح هذه الصفحة من متصفح الهاتف (Chrome) واضغط «تنزيل لأندرويد». الحجم {human_size(a.size)}، فالأفضل على الواي فاي.</li>
+    <li>إن قال المتصفح إن الملف «قد يكون ضاراً» فاضغط <b>تنزيل على أي حال</b>.</li>
+    <li>افتح الملف من الإشعار أو من «التنزيلات».</li>
+    <li>أول مرة يقول الهاتف إن التثبيت من هذا المصدر غير مسموح: اضغط <b>الإعدادات</b>، وفعّل <b>السماح من هذا المصدر</b>، ثم ارجع.</li>
+    <li>اضغط <b>تثبيت</b>. إن ظهر تحذير Play Protect فاختر <b>مزيد من التفاصيل</b> ثم <b>التثبيت على أي حال</b>.</li>
+    <li>افتح التطبيق وسجّل الدخول باسم حساب الترخيص وكلمة سره.</li>
+  </ol>
+</div>""")
+    return "".join(parts)
+
+
 def app_page(app: App, site: dict, imgs: list[dict]) -> str:
     up = "../../"
     hero_img = imgs[0] if imgs else None
@@ -412,6 +480,7 @@ def app_page(app: App, site: dict, imgs: list[dict]) -> str:
       <h1 class="display">{e(app.name)}</h1>
       {f'<p class="lede">{e(app.tagline)}</p>' if app.tagline else ''}
       <div class="btns">{buttons or no_release}</div>
+      {'<p class="how"><a href="#install">كيف أثبّت البرنامج؟</a></p>' if app.platforms else ''}
     </div>
     {shot_frame(hero_img, up, "hero-shot")}
   </div>
@@ -422,6 +491,10 @@ def app_page(app: App, site: dict, imgs: list[dict]) -> str:
 {f'''<section class="wrap block" id="download"><h2>التنزيل</h2>
 <p class="muted">كل ملف هنا رُفع منا مباشرة، ومعه بصمته. البصمة تتغيّر كلياً لو تغيّر بايت واحد في الملف.</p>
 <div class="vouchers">{"".join(voucher(app, p) for p in app.platforms)}</div></section>''' if app.platforms else ''}
+{f'''<section class="wrap block" id="install"><h2>كيف أثبّت البرنامج؟</h2>
+<p class="muted">ستظهر لك تحذيرات من ويندوز أو الهاتف: هذا متوقع لأي برنامج يُنزَّل من خارج المتجر، وليس لأن في الملف شيئاً. لكن نزّله من هذه الصفحة فقط، وطابق بصمته (الخطوات أسفل).</p>
+{"".join(video_tag(v, up) for v in app.videos if not v["platform"])}
+<div class="verify">{install_steps(app, up)}</div></section>''' if app.platforms else ''}
 {f'<section class="wrap block"><h2>تأكّد أن الملف أصلي</h2><div class="verify">{verify_steps(app)}</div></section>' if app.platforms else ''}
 {f'<section class="wrap block"><h2>إصدارات سابقة</h2><div class="table-wrap"><table class="older"><thead><tr><th>المنصة</th><th>الإصدار</th><th>التاريخ</th><th>البصمة</th><th></th></tr></thead><tbody>{"".join(older_rows)}</tbody></table></div></section>' if older_rows else ''}
 """
@@ -524,6 +597,10 @@ def build(verify: bool) -> None:
         for i, s in enumerate(a.shots):
             name, w, h = process_image(s["src"], out / "shots", f"{i + 1:02d}", 1600)
             imgs.append({"path": f"apps/{a.id}/shots/{name}", "w": w, "h": h, "caption": s["caption"]})
+        for v in a.videos:
+            (out / "videos").mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(v["src"], out / "videos" / v["src"].name)
+            v["path"] = f"apps/{a.id}/videos/{v['src'].name}"
         if a.icon:
             name, _, _ = process_image(APPS / a.id / a.icon, out, "icon", 256)
             a.icon_path = f"apps/{a.id}/{name}"

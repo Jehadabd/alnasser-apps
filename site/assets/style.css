@@ -192,3 +192,12 @@ code, pre { font-family: Consolas, "Cascadia Mono", "Courier New", monospace; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }
 }
+
+/* ── خطوات التثبيت والفيديو ── */
+.how { margin: var(--s3) 0 0; font-weight: 600; }
+.install-block ol li { margin-bottom: var(--s3); }
+.install-block b { font-weight: 700; color: var(--navy); }
+.install-block code { font-size: .85rem; overflow-wrap: anywhere; }
+.video { margin: 0 0 var(--s4); }
+.video video { display: block; width: 100%; max-height: 70vh; background: #000; border-radius: 8px; border: 1px solid var(--line); }
+.video figcaption { color: var(--muted); font-size: .92rem; margin-top: var(--s2); }
