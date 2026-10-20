@@ -1,0 +1,12 @@
+{
+    "platform":  "windows",
+    "version":  "1.0.1",
+    "file":  "alnasser-accounting-1.0.1-windows.zip",
+    "size":  94290955,
+    "sha256":  "61462c23d6da2efb713def7c401ad48a4943e2690eb3b1188443f2d28a0081ab",
+    "url":  "https://github.com/Jehadabd/alnasser-apps/releases/download/alnasser-accounting-windows-v1.0.1/alnasser-accounting-1.0.1-windows.zip",
+    "date":  "2026-10-20",
+    "notes":  [
+                  "قاعدة بيانات فارغة في كل تثبيت جديد، لوحة جانبية في كل الشاشات، تعليق الفواتير، تقرير فترة مخصصة، أيقونة جديدة، إصلاح إضافة مورد"
+              ]
+}
