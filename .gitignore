@@ -1,0 +1,9 @@
+platform-tools/
+__pycache__/
+*.pyc
+.venv/
+.buildozer/
+bin/
+build/
+dist/
+*.kml

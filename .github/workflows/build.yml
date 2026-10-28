@@ -1,0 +1,132 @@
+name: GPS Link build
+
+on:
+  push:
+    branches: [gps-link]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install "kivy[base]==2.3.1" pyserial arabic-reshaper python-bidi pyinstaller
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Build exe
+        run: pyinstaller --noconfirm GPSLink.spec
+      - name: Selftest inside the exe (no window)
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\GPSLink\GPSLink.exe -ArgumentList "--selftest" -Wait -PassThru
+          "selftest exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Open the real window for 8 s
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\GPSLink\GPSLink.exe -ArgumentList "--smoke","8" -Wait -PassThru
+          "smoke exit code: $($p.ExitCode)"
+          Get-ChildItem "$env:USERPROFILE\.kivy\logs" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1 | Get-Content
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\GPSLink\* -DestinationPath GPSLink-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: GPSLink-Windows.zip
+
+  android:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git zip unzip autoconf automake libtool \
+            pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+          key: buildozer-v1-${{ hashFiles('buildozer.spec') }}
+      - name: Build APK
+        run: |
+          pip install --upgrade pip
+          pip install buildozer "cython==0.29.37" setuptools
+          set -o pipefail
+          yes | buildozer -v android debug 2>&1 | tail -n 400
+          ls -la bin
+      - run: mkdir -p apk && cp bin/*.apk apk/GPSLink.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: apk/GPSLink.apk
+
+  phone-e2e:
+    needs: android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Emulator = phone
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tests/e2e.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phone-shots
+          path: shots
+
+  release:
+    needs: [windows, android, phone-e2e]
+    if: always() && needs.windows.result == 'success' && needs.android.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - run: ls -R out
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: gps-link-${{ github.run_number }}
+          name: GPS Link ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ needs.phone-e2e.result != 'success' }}
+          body: "phone end-to-end test: ${{ needs.phone-e2e.result }}"
+          files: |
+            out/windows/GPSLink-Windows.zip
+            out/apk/GPSLink.apk
+            out/phone-shots/*
